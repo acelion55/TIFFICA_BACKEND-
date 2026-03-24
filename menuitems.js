@@ -37,6 +37,10 @@ const menuItemSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    isVeg: {
+        type: Boolean,
+        default: true
+    },
     isTodaySpecial: {
         type: Boolean,
         default: false

@@ -56,11 +56,13 @@ app.use('/api/cloudkitchens', require('./cloudkitchen_routes'));
 app.use('/api/homestyles', require('./homestyles'));
 app.use('/api/pagestyles', require('./pagestyles_routes'));
 app.use('/api/scheduleconfigs', require('./scheduleconfigs'));
+app.use('/api/schedule', require('./scheduleroutes'));
 app.use('/api/admin', require('./admin'));
 app.use('/api/complaints', require('./complaints'));
 app.use('/api/legalpages', require('./legalpages'));
 app.use('/api/payments', require('./payments'));
 app.use('/api/upload', require('./upload'));
+app.use('/api/notifications', require('./notifications'));
 console.log('🔍 STARTUP LOG 12: All routes registered');
 
 // Root route
