@@ -5,11 +5,13 @@ const Notification = require('./notification');
 const PushSubscription = require('./pushsubscription');
 const auth = require('./authmiddle');
 
-webpush.setVapidDetails(
-  process.env.VAPID_EMAIL,
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-);
+if (process.env.VAPID_EMAIL && process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(
+    process.env.VAPID_EMAIL,
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+}
 
 // ── Public: get VAPID public key ─────────────────────────
 router.get('/vapid-public-key', (req, res) => {
