@@ -22,7 +22,14 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String,
     required: false,
-    minlength: 6
+    minlength: 6,
+    validate: {
+      validator: function(v) {
+        if (!v) return true; // Allow null for OTP-only users
+        return v.length >= 6;
+      },
+      message: 'Password must be at least 6 characters'
+    }
   },
   otp: {
     type: String,
@@ -32,6 +39,10 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  otpAttempts: {
+    type: Number,
+    default: 0
+  },
   resetPasswordOtp: {
     type: String,
     default: null
@@ -39,6 +50,10 @@ const userSchema = new mongoose.Schema({
   resetPasswordOtpExpiry: {
     type: Date,
     default: null
+  },
+  resetPasswordAttempts: {
+    type: Number,
+    default: 0
   },
   // Current location
   currentLocation: {
@@ -90,6 +105,16 @@ const userSchema = new mongoose.Schema({
   isPremium: {
     type: Boolean,
     default: false
+  },
+  role: {
+    type: String,
+    enum: ['user', 'admin', 'kitchen-owner', 'delivery'],
+    default: 'user'
+  },
+  assignedKitchen: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CloudKitchen',
+    default: null
   },
   premiumExpiryDate: {
     type: Date

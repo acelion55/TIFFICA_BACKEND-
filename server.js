@@ -63,6 +63,8 @@ app.use('/api/legalpages', require('./legalpages'));
 app.use('/api/payments', require('./payments'));
 app.use('/api/upload', require('./upload'));
 app.use('/api/notifications', require('./notifications'));
+app.use('/api/kitchen-owner', require('./kitchenowner'));
+app.use('/api/coupons', require('./coupons'));
 console.log('🔍 STARTUP LOG 12: All routes registered');
 
 // Root route
@@ -117,7 +119,7 @@ app.use((err, req, res, next) => {
 
 console.log('🔍 STARTUP LOG 15: Error handler added');
 
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5000;
 console.log('🔍 STARTUP LOG 16: About to listen on port', PORT);
 
 app.listen(PORT, "0.0.0.0", () => {

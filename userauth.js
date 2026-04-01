@@ -35,12 +35,24 @@ async function sendEmailOtp(email, otp) {
 router.post('/send-email-otp', async (req, res) => {
   try {
     const { email } = req.body;
-    const user = await User.findOne({ email });
+    
+    // Validate input
+    if (!email) {
+      return res.status(400).json({ msg: 'Email is required' });
+    }
+    
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ msg: 'Invalid email format' });
+    }
+    
+    const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) return res.status(404).json({ msg: 'No account found with this email' });
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    // Generate 8-digit OTP for better security
+    const otp = Math.floor(10000000 + Math.random() * 90000000).toString();
     user.otp = otp;
     user.otpExpiry = Date.now() + 10 * 60 * 1000;
+    user.otpAttempts = 0;
     await user.save();
 
     try {
@@ -60,17 +72,49 @@ router.post('/send-email-otp', async (req, res) => {
 router.post('/login-email-otp', async (req, res) => {
   try {
     const { email, otp } = req.body;
-    const user = await User.findOne({ email, otp, otpExpiry: { $gt: Date.now() } });
+    
+    // Validate input
+    if (!email || !otp) {
+      return res.status(400).json({ msg: 'Email and OTP are required' });
+    }
+    
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ msg: 'Invalid email format' });
+    }
+    
+    if (!/^\d{8}$/.test(otp)) {
+      return res.status(400).json({ msg: 'OTP must be 8 digits' });
+    }
+    
+    const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) return res.status(400).json({ msg: 'Invalid or expired OTP' });
+    
+    // Check OTP attempts
+    if (user.otpAttempts >= 5) {
+      return res.status(429).json({ msg: 'Too many failed attempts. Please request a new OTP' });
+    }
+    
+    // Check if OTP is expired
+    if (!user.otpExpiry || user.otpExpiry < Date.now()) {
+      return res.status(400).json({ msg: 'Invalid or expired OTP' });
+    }
+    
+    // Verify OTP
+    if (user.otp !== otp) {
+      user.otpAttempts = (user.otpAttempts || 0) + 1;
+      await user.save();
+      return res.status(400).json({ msg: 'Invalid or expired OTP' });
+    }
 
     user.otp = null;
     user.otpExpiry = null;
+    user.otpAttempts = 0;
     await user.save();
 
-    const payload = { userId: user.id };
+    const payload = { userId: user.id, role: user.role || 'user' };
     jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '5d' }, (err, token) => {
       if (err) throw err;
-      res.json({ token });
+      res.json({ token, role: user.role || 'user' });
     });
   } catch (err) {
     console.error(err.message);
@@ -120,7 +164,21 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email });
+    
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({ msg: 'Email and password are required' });
+    }
+    
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ msg: 'Invalid email format' });
+    }
+    
+    if (password.length < 6) {
+      return res.status(400).json({ msg: 'Invalid credentials' });
+    }
+    
+    const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
       return res.status(400).json({ msg: 'Invalid credentials' });
     }
@@ -132,6 +190,7 @@ router.post('/login', async (req, res) => {
 
     const payload = {
       userId: user.id,
+      role: user.role || 'user'
     };
 
     jwt.sign(
@@ -140,9 +199,47 @@ router.post('/login', async (req, res) => {
       { expiresIn: '5d' },
       (err, token) => {
         if (err) throw err;
-        res.json({ token });
+        res.json({ token, role: user.role || 'user' });
       }
     );
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server error');
+  }
+});
+
+// Login with mobile and password
+router.post('/login-mobile', async (req, res) => {
+  try {
+    const { phone, password } = req.body;
+    
+    if (!phone || !password) {
+      return res.status(400).json({ msg: 'Phone and password are required' });
+    }
+    
+    if (!/^\d{10}$/.test(phone.replace(/\D/g, ''))) {
+      return res.status(400).json({ msg: 'Invalid phone number format' });
+    }
+    
+    if (password.length < 6) {
+      return res.status(400).json({ msg: 'Invalid credentials' });
+    }
+    
+    const user = await User.findOne({ phone });
+    if (!user) {
+      return res.status(400).json({ msg: 'Invalid credentials' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ msg: 'Invalid credentials' });
+    }
+
+    const payload = { userId: user.id, role: user.role || 'user' };
+    jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '5d' }, (err, token) => {
+      if (err) throw err;
+      res.json({ token, role: user.role || 'user' });
+    });
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server error');
@@ -153,16 +250,27 @@ router.post('/login', async (req, res) => {
 router.post('/send-otp', async (req, res) => {
   try {
     const { phone } = req.body;
+    
+    // Validate input
+    if (!phone) {
+      return res.status(400).json({ msg: 'Phone number is required' });
+    }
+    
+    if (!/^\d{10}$/.test(phone.replace(/\D/g, ''))) {
+      return res.status(400).json({ msg: 'Invalid phone number format' });
+    }
+    
     const user = await User.findOne({ phone });
     if (!user) {
       return res.status(404).json({ msg: 'User not found' });
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = Math.floor(10000000 + Math.random() * 90000000).toString();
     const otpExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes
 
     user.otp = otp;
     user.otpExpiry = otpExpiry;
+    user.otpAttempts = 0;
     await user.save();
 
     // In a real application, you would send the OTP via SMS
@@ -179,19 +287,45 @@ router.post('/send-otp', async (req, res) => {
 router.post('/login-otp', async (req, res) => {
   try {
     const { phone, otp } = req.body;
+    
+    // Validate input
+    if (!phone || !otp) {
+      return res.status(400).json({ msg: 'Phone and OTP are required' });
+    }
+    
+    if (!/^\d{10}$/.test(phone.replace(/\D/g, ''))) {
+      return res.status(400).json({ msg: 'Invalid phone number format' });
+    }
+    
+    if (!/^\d{8}$/.test(otp)) {
+      return res.status(400).json({ msg: 'OTP must be 8 digits' });
+    }
 
-    const user = await User.findOne({
-      phone,
-      otp,
-      otpExpiry: { $gt: Date.now() },
-    });
-
+    const user = await User.findOne({ phone });
     if (!user) {
+      return res.status(400).json({ msg: 'Invalid or expired OTP' });
+    }
+    
+    // Check OTP attempts
+    if (user.otpAttempts >= 5) {
+      return res.status(429).json({ msg: 'Too many failed attempts. Please request a new OTP' });
+    }
+    
+    // Check if OTP is expired
+    if (!user.otpExpiry || user.otpExpiry < Date.now()) {
+      return res.status(400).json({ msg: 'Invalid or expired OTP' });
+    }
+    
+    // Verify OTP
+    if (user.otp !== otp) {
+      user.otpAttempts = (user.otpAttempts || 0) + 1;
+      await user.save();
       return res.status(400).json({ msg: 'Invalid or expired OTP' });
     }
 
     user.otp = null;
     user.otpExpiry = null;
+    user.otpAttempts = 0;
     await user.save();
 
     const payload = {

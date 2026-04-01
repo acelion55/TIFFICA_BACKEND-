@@ -15,7 +15,7 @@ const auth = async (req, res, next) => {
     let decoded;
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET);
-      console.log('✅ Token verified, user ID:', decoded.userId);
+      console.log('✅ Token verified, user ID:', decoded.userId, 'role:', decoded.role);
     } catch (jwtError) {
       console.error('❌ JWT verification failed:', jwtError.message);
       return res.status(401).json({ error: 'Invalid or expired token', details: jwtError.message });
@@ -35,9 +35,10 @@ const auth = async (req, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    console.log('✅ User found:', user.name);
+    console.log('✅ User found:', user.name, 'role:', user.role);
     req.user = user;
     req.userId = decoded.userId;
+    req.userRole = user.role || 'user';
     
     console.log('✅ Auth passed, calling next()');
     if (typeof next !== 'function') {
@@ -56,4 +57,30 @@ const auth = async (req, res, next) => {
   }
 };
 
+// Admin-only middleware
+const adminAuth = async (req, res, next) => {
+  try {
+    // First run normal auth
+    await new Promise((resolve, reject) => {
+      auth(req, res, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+
+    // Check if user is admin
+    if (req.userRole !== 'admin') {
+      console.log('❌ Access denied: User is not admin');
+      return res.status(403).json({ error: 'Access denied. Admin only.' });
+    }
+
+    console.log('✅ Admin auth passed');
+    next();
+  } catch (error) {
+    console.error('❌ Admin auth error:', error.message);
+    res.status(401).json({ error: 'Authentication failed', details: error.message });
+  }
+};
+
 module.exports = auth;
+module.exports.adminAuth = adminAuth;

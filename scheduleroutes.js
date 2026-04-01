@@ -5,6 +5,79 @@ const User = require('./user');
 const UserSchedule = require('./userschedule');
 const Order = require('./order');
 const MenuItem = require('./menuitems');
+const CloudKitchen = require('./cloudkitchen');
+
+// GET /api/schedule/menu/:mealType  — get menu items by meal type and user location
+router.get('/menu/:mealType', auth, async (req, res) => {
+  try {
+    const { mealType } = req.params;
+    const validMealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+    const capitalizedMealType = mealType.charAt(0).toUpperCase() + mealType.slice(1).toLowerCase();
+    
+    if (!validMealTypes.includes(capitalizedMealType)) {
+      return res.status(400).json({ error: 'Invalid meal type' });
+    }
+
+    const user = await User.findById(req.userId);
+    
+    // If user has location, filter by nearby kitchens
+    if (user?.currentLocation?.latitude && user?.currentLocation?.longitude) {
+      const { latitude, longitude } = user.currentLocation;
+      const maxDistance = 5000; // 5km
+
+      const nearbyKitchens = await CloudKitchen.find({
+        location: {
+          $near: {
+            $geometry: {
+              type: 'Point',
+              coordinates: [longitude, latitude]
+            },
+            $maxDistance: maxDistance
+          }
+        }
+      });
+
+      const kitchenIds = nearbyKitchens.map(k => k._id);
+
+      const items = await MenuItem.find({
+        mealType: capitalizedMealType,
+        isAvailable: true,
+        $or: [
+          { cloudKitchen: { $in: kitchenIds } },
+          { cloudKitchen: null },
+          { cloudKitchen: { $exists: false } }
+        ]
+      }).populate('cloudKitchen', 'name location').sort({ createdAt: -1 });
+
+      return res.json({
+        success: true,
+        mealType: capitalizedMealType,
+        userLocation: {
+          latitude,
+          longitude,
+          locationName: user.currentLocation.locationName
+        },
+        nearbyKitchensCount: nearbyKitchens.length,
+        items
+      });
+    }
+
+    // No location - return all items
+    const items = await MenuItem.find({
+      mealType: capitalizedMealType,
+      isAvailable: true
+    }).populate('cloudKitchen', 'name location').sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      mealType: capitalizedMealType,
+      items
+    });
+  } catch (err) {
+    console.error('❌ Error fetching schedule menu:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/schedule?date=yyyy-MM-dd  — get user's schedule for a date
 router.get('/', auth, async (req, res) => {

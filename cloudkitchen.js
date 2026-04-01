@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const cloudKitchenSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
+    ownerEmail: { type: String, default: null },
     location: {
       type: {
         type: String,
