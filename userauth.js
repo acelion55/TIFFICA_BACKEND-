@@ -63,7 +63,7 @@ router.post('/send-email-otp', async (req, res) => {
 
     res.json({ msg: 'OTP sent to email' });
   } catch (err) {
-    console.error(err.message);
+    
     res.status(500).send('Server error');
   }
 });
@@ -117,7 +117,7 @@ router.post('/login-email-otp', async (req, res) => {
       res.json({ token, role: user.role || 'user' });
     });
   } catch (err) {
-    console.error(err.message);
+    
     res.status(500).send('Server error');
   }
 });
@@ -155,7 +155,7 @@ router.post('/register', async (req, res) => {
       }
     );
   } catch (err) {
-    console.error(err.message);
+    
     res.status(500).send('Server error');
   }
 });
@@ -203,7 +203,7 @@ router.post('/login', async (req, res) => {
       }
     );
   } catch (err) {
-    console.error(err.message);
+    
     res.status(500).send('Server error');
   }
 });
@@ -241,7 +241,7 @@ router.post('/login-mobile', async (req, res) => {
       res.json({ token, role: user.role || 'user' });
     });
   } catch (err) {
-    console.error(err.message);
+    
     res.status(500).send('Server error');
   }
 });
@@ -278,7 +278,7 @@ router.post('/send-otp', async (req, res) => {
 
     res.json({ msg: 'OTP sent to phone' });
   } catch (err) {
-    console.error(err.message);
+    
     res.status(500).send('Server error');
   }
 });
@@ -342,7 +342,7 @@ router.post('/login-otp', async (req, res) => {
       }
     );
   } catch (err) {
-    console.error(err.message);
+    
     res.status(500).send('Server error');
   }
 });
@@ -368,7 +368,7 @@ router.post('/forgot-password', async (req, res) => {
 
     res.json({ msg: 'Password reset OTP sent' });
   } catch (err) {
-    console.error(err.message);
+    
     res.status(500).send('Server error');
   }
 });
@@ -395,7 +395,7 @@ router.post('/reset-password', async (req, res) => {
 
     res.json({ msg: 'Password reset successful' });
   } catch (err) {
-    console.error(err.message);
+    
     res.status(500).send('Server error');
   }
 });
@@ -406,7 +406,7 @@ router.get('/profile', auth, async (req, res) => {
     const user = await User.findById(req.userId).select('-password');
     res.json(user);
   } catch (err) {
-    console.error(err.message);
+    
     res.status(500).send('Server error');
   }
 });
@@ -433,7 +433,7 @@ router.put('/profile', auth, async (req, res) => {
 
         res.json(user);
     } catch (err) {
-        console.error('Error updating profile:', err.message);
+        
         res.status(500).send('Server error');
     }
 });
@@ -454,7 +454,7 @@ router.put('/location', auth, async (req, res) => {
     if (!user) return res.status(404).json({ msg: 'User not found' });
     res.json({ msg: 'Location saved', user });
   } catch (err) {
-    console.error(err.message);
+    
     res.status(500).send('Server error');
   }
 });

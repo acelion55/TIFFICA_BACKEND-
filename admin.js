@@ -101,7 +101,6 @@ router.get('/stats', kitchenOrAdminAuth, async (req, res) => {
       res.json({ success: true, stats: { users: usersCount, orders: ordersCount, menuItems: menuItemsCount, subscriptions: subscriptionsCount } });
     }
   } catch (error) {
-    console.error('❌ Admin Stats Error:', error);
     res.status(500).json({ error: 'Failed to fetch stats' });
   }
 });
@@ -171,7 +170,6 @@ router.get('/today', kitchenOrAdminAuth, async (req, res) => {
       instantOrders,
     });
   } catch (err) {
-    console.error('❌ Today dashboard error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -321,7 +319,7 @@ router.get('/menu', kitchenOrAdminAuth, async (req, res) => {
 
 router.post('/menu', kitchenOrAdminAuth, async (req, res) => {
   try {
-    const { name, description, price, image, category, mealType, cloudKitchen, isSpecial, isTodaySpecial, ingredients } = req.body;
+    const { name, description, price, originalPrice, discount, image, category, mealType, cloudKitchen, isSpecial, isTodaySpecial, isVeg, ingredients, availableQuantity, availableUntil } = req.body;
     if (!name || !description || !price || !image || !category) return res.status(400).json({ error: 'Please provide all required fields' });
     
     // Kitchen owner can only add items to their kitchen
@@ -333,7 +331,29 @@ router.post('/menu', kitchenOrAdminAuth, async (req, res) => {
       kitchenId = req.user.assignedKitchen;
     }
     
-    const menuItem = new MenuItem({ name, description, price, image, category, mealType, cloudKitchen: kitchenId || null, isSpecial: isSpecial || false, isTodaySpecial: isTodaySpecial || false, ingredients: ingredients || [] });
+    // Calculate originalPrice if not provided but discount is given
+    let finalOriginalPrice = originalPrice;
+    if (!finalOriginalPrice && discount > 0) {
+      finalOriginalPrice = Math.round(price / (1 - discount / 100));
+    }
+    
+    const menuItem = new MenuItem({ 
+      name, 
+      description, 
+      price, 
+      originalPrice: finalOriginalPrice || null,
+      discount: discount || 0,
+      image, 
+      category, 
+      mealType, 
+      isVeg: isVeg !== undefined ? isVeg : true,
+      cloudKitchen: kitchenId || null, 
+      isSpecial: isSpecial || false, 
+      isTodaySpecial: isTodaySpecial || false, 
+      ingredients: ingredients || [],
+      availableQuantity: availableQuantity || null,
+      availableUntil: availableUntil || null
+    });
     await menuItem.save();
     await menuItem.populate('cloudKitchen', 'name');
     res.json({ success: true, message: 'Menu item created successfully', item: menuItem });
@@ -361,10 +381,32 @@ router.delete('/menu/:id', kitchenOrAdminAuth, async (req, res) => {
 
 router.put('/menu/:id', kitchenOrAdminAuth, async (req, res) => {
   try {
-    const { name, description, price, image, category, mealType, cloudKitchen, isSpecial, isTodaySpecial, ingredients } = req.body;
+    const { name, description, price, originalPrice, discount, image, category, mealType, cloudKitchen, isSpecial, isTodaySpecial, isVeg, ingredients, availableQuantity, availableUntil } = req.body;
     
     let query = { _id: req.params.id };
-    let updateData = { name, description, price, image, category, mealType, isSpecial: isSpecial || false, isTodaySpecial: isTodaySpecial || false, ingredients: ingredients || [] };
+    
+    // Calculate originalPrice if not provided but discount is given
+    let finalOriginalPrice = originalPrice;
+    if (!finalOriginalPrice && discount > 0) {
+      finalOriginalPrice = Math.round(price / (1 - discount / 100));
+    }
+    
+    let updateData = { 
+      name, 
+      description, 
+      price, 
+      originalPrice: finalOriginalPrice || null,
+      discount: discount || 0,
+      image, 
+      category, 
+      mealType, 
+      isVeg: isVeg !== undefined ? isVeg : true,
+      isSpecial: isSpecial || false, 
+      isTodaySpecial: isTodaySpecial || false, 
+      ingredients: ingredients || [],
+      availableQuantity: availableQuantity || null,
+      availableUntil: availableUntil || null
+    };
     
     // Kitchen owner restrictions
     if (req.user.role === 'kitchen-owner') {
@@ -420,7 +462,6 @@ router.get('/orders', kitchenOrAdminAuth, async (req, res) => {
     
     res.json({ success: true, orders });
   } catch (error) {
-    console.error('Orders fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch orders' });
   }
 });

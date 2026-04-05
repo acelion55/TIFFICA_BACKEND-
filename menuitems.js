@@ -15,6 +15,23 @@ const menuItemSchema = new mongoose.Schema({
         required: true,
         min: 0
     },
+    originalPrice: {
+        type: Number,
+        default: null
+    },
+    discount: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    availableQuantity: {
+        type: Number,
+        default: null
+    },
+    availableUntil: {
+        type: Date,
+        default: null
+    },
     image: {
         type: String,
         required: true

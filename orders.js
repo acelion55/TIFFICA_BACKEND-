@@ -43,7 +43,6 @@ async function routingDistanceKm(lat1, lon1, lat2, lon2) {
     const km = route.distance / 1000;
     return km;
   } catch (err) {
-    console.error('⚠️ OSRM routing failed, falling back to haversine:', err.message || err);
     return haversineKm(lat1, lon1, lat2, lon2);
   }
 }
@@ -72,26 +71,21 @@ router.post('/', auth, async (req, res) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    console.log('📦 Creating order for user:', req.userId);
-
     const defaultAddress =
       (user.addresses || []).find((a) => a.isDefault && a.location && Array.isArray(a.location.coordinates)) ||
       null;
 
     if (!defaultAddress) {
-      console.log('❌ No default address with location found for user');
       return res.status(400).json({
         error: 'Please set a default address with location to place an order',
       });
     }
 
-    const [userLng, userLat] = defaultAddress.location.coordinates; // [lng, lat]
-    console.log('📍 User default address coordinates:', { lat: userLat, lng: userLng });
+    const [userLng, userLat] = defaultAddress.location.coordinates;
 
     // 2) Load all cloud kitchens from shared collection
     const kitchens = await CloudKitchen.find({});
     if (!kitchens.length) {
-      console.log('❌ No cloud kitchens configured in DB');
       return res.status(400).json({
         error: 'No kitchens configured yet. Please try again later.',
       });
@@ -108,7 +102,6 @@ router.post('/', auth, async (req, res) => {
       if (!Number.isFinite(kLat) || !Number.isFinite(kLng)) continue;
 
       const distKm = await routingDistanceKm(userLat, userLng, kLat, kLng);
-      console.log('🏭 Road distance to kitchen', k.name, '=>', distKm.toFixed(2), 'km');
 
       if (distKm < nearestKm) nearestKm = distKm;
       if (distKm <= 5) hasKitchenInRange = true;
@@ -116,13 +109,11 @@ router.post('/', auth, async (req, res) => {
 
     if (!hasKitchenInRange) {
       const rounded = Number.isFinite(nearestKm) ? nearestKm.toFixed(2) : 'unknown';
-      console.log('🚫 All kitchens are out of 5km range. Nearest ~', rounded, 'km');
       return res.status(400).json({
         error: `The kitchen is not in your area. Nearest kitchen is about ${rounded} km away. Minimum 5 km coverage is required to place an order.`,
       });
     }
     const usedDistanceKm = Number.isFinite(nearestKm) ? Number(nearestKm.toFixed(2)) : null;
-    console.log('✅ At least one kitchen within 5km. Nearest distance:', usedDistanceKm, 'km');
 
     // Calculate total amount
     let totalAmount = 0;
@@ -162,15 +153,12 @@ router.post('/', auth, async (req, res) => {
     await order.save();
     await order.populate('items.menuItem');
 
-    console.log('🧾 Order created with id:', order._id);
-
     res.status(201).json({
       message: 'Order placed successfully',
       order,
       deliveryDistanceKm: usedDistanceKm,
     });
   } catch (error) {
-    console.error('❌ Error creating order:', error);
     res.status(500).json({ error: 'Server error creating order' });
   }
 });
@@ -268,7 +256,6 @@ router.post('/:id/reorder', auth, async (req, res) => {
       order: newOrder
     });
   } catch (error) {
-    console.error(error);
     res.status(500).json({ error: 'Server error reordering' });
   }
 });

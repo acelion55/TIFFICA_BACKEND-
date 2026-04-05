@@ -36,7 +36,7 @@ router.post('/create-order', auth, async (req, res) => {
 
     return res.json({ success: true, order: rpRes.data });
   } catch (err) {
-    console.error('❌ Razorpay create-order:', err.response?.data || err.message);
+    
     return res.status(500).json({ error: 'Failed to create order', details: err.response?.data });
   }
 });
@@ -82,7 +82,7 @@ router.post('/create-link', auth, async (req, res) => {
       amount:    link.amount,
     });
   } catch (err) {
-    console.error('❌ Razorpay create-link:', err.response?.data || err.message);
+    
     return res.status(500).json({ error: 'Failed to create payment link', details: err.response?.data });
   }
 });
@@ -102,10 +102,10 @@ router.post('/wallet-credit', auth, async (req, res) => {
 
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    console.log(`✅ Wallet credited ₹${amount} for user ${req.userId}, paymentId: ${paymentId}`);
+    
     return res.json({ success: true, walletBalance: user.walletBalance, user });
   } catch (err) {
-    console.error('❌ Wallet credit error:', err.message);
+    
     return res.status(500).json({ error: 'Failed to credit wallet' });
   }
 });

@@ -74,7 +74,7 @@ router.get('/menu/:mealType', auth, async (req, res) => {
       items
     });
   } catch (err) {
-    console.error('❌ Error fetching schedule menu:', err);
+    
     res.status(500).json({ error: err.message });
   }
 });
@@ -262,7 +262,7 @@ router.delete('/remove', auth, async (req, res) => {
       refundAmount = 0; // no refund after delivery time
     }
 
-    console.log('SCHEDULE REMOVE:', { date, mealType, mealPrice, deliveryTime, hoursToDelivery, refundAmount });
+    
 
     if (refundAmount > 0) {
       const user = await User.findById(req.userId);

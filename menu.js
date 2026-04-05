@@ -60,10 +60,14 @@ router.get('/by-location', auth, async (req, res) => {
         name: item.name,
         description: item.description,
         price: item.price,
+        originalPrice: item.originalPrice,
+        discount: item.discount || 0,
         image: item.image,
         category: item.category,
         mealType: item.mealType,
         rating: item.rating,
+        availableQuantity: item.availableQuantity,
+        availableUntil: item.availableUntil,
         cloudKitchen: item.cloudKitchen ? {
           _id: item.cloudKitchen._id,
           name: item.cloudKitchen.name,
@@ -72,7 +76,6 @@ router.get('/by-location', auth, async (req, res) => {
       }))
     });
   } catch (error) {
-    console.error('❌ Error fetching items by location:', error);
     res.status(500).json({ error: 'Server error fetching items by location' });
   }
 });
@@ -119,7 +122,21 @@ router.get('/', async (req, res) => {
       items = await MenuItem.find(query).sort({ createdAt: -1 });
     }
     
-    res.json({ items });
+    res.json({ 
+      items: items.map(item => ({
+        _id: item._id,
+        name: item.name,
+        description: item.description,
+        price: item.price,
+        originalPrice: item.originalPrice,
+        discount: item.discount || 0,
+        image: item.image,
+        category: item.category,
+        mealType: item.mealType,
+        isVeg: item.isVeg,
+        rating: item.rating
+      }))
+    });
 
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -167,10 +184,130 @@ router.get('/mealtype/:mealType', async (req, res) => {
     res.json({ 
       success: true,
       mealType: capitalizedMealType,
-      items 
+      items: items.map(item => ({
+        _id: item._id,
+        name: item.name,
+        description: item.description,
+        price: item.price,
+        originalPrice: item.originalPrice,
+        discount: item.discount || 0,
+        image: item.image,
+        category: item.category,
+        mealType: item.mealType,
+        isVeg: item.isVeg,
+        rating: item.rating
+      }))
     });
   } catch (error) {
-    console.error('❌ Error fetching meal items:', error);
+    res.status(500).json({ error: 'Server error fetching meal items' });
+  }
+});
+
+// Get items by meal type with location (5km radius)
+router.get('/mealtype/:mealType/by-location', auth, async (req, res) => {
+  try {
+    const { mealType } = req.params;
+    
+    // Validate meal type
+    const validMealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+    const capitalizedMealType = mealType.charAt(0).toUpperCase() + mealType.slice(1).toLowerCase();
+    
+    if (!validMealTypes.includes(capitalizedMealType)) {
+      return res.status(400).json({ error: 'Invalid meal type' });
+    }
+
+    const user = await User.findById(req.userId);
+    
+    if (!user || !user.currentLocation || !user.currentLocation.latitude || !user.currentLocation.longitude) {
+      // If no location, return all items
+      const items = await MenuItem.find({
+        mealType: capitalizedMealType,
+        isAvailable: true
+      }).sort({ createdAt: -1 });
+      
+      return res.json({
+        success: true,
+        mealType: capitalizedMealType,
+        items: items.map(item => ({
+          _id: item._id,
+          name: item.name,
+          description: item.description,
+          price: item.price,
+          originalPrice: item.originalPrice,
+          discount: item.discount || 0,
+          image: item.image,
+          category: item.category,
+          mealType: item.mealType,
+          isVeg: item.isVeg,
+          rating: item.rating
+        }))
+      });
+    }
+
+    const { latitude, longitude } = user.currentLocation;
+    const maxDistance = 5000; // 5km in meters
+
+    // Find nearby cloud kitchens
+    const nearbyKitchens = await CloudKitchen.find({
+      location: {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates: [longitude, latitude]
+          },
+          $maxDistance: maxDistance
+        }
+      }
+    });
+
+    if (nearbyKitchens.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No cloud kitchens found within 5km',
+        mealType: capitalizedMealType,
+        items: []
+      });
+    }
+
+    const kitchenIds = nearbyKitchens.map(k => k._id);
+
+    // Get meal items from nearby kitchens
+    const items = await MenuItem.find({
+      mealType: capitalizedMealType,
+      cloudKitchen: { $in: kitchenIds },
+      isAvailable: true
+    }).populate('cloudKitchen', 'name location').sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      mealType: capitalizedMealType,
+      userLocation: {
+        latitude,
+        longitude,
+        locationName: user.currentLocation.locationName
+      },
+      nearbyKitchensCount: nearbyKitchens.length,
+      itemsCount: items.length,
+      items: items.map(item => ({
+        _id: item._id,
+        name: item.name,
+        description: item.description,
+        price: item.price,
+        originalPrice: item.originalPrice,
+        discount: item.discount || 0,
+        image: item.image,
+        category: item.category,
+        mealType: item.mealType,
+        isVeg: item.isVeg,
+        rating: item.rating,
+        cloudKitchen: item.cloudKitchen ? {
+          _id: item.cloudKitchen._id,
+          name: item.cloudKitchen.name,
+          location: item.cloudKitchen.location
+        } : null
+      }))
+    });
+  } catch (error) {
     res.status(500).json({ error: 'Server error fetching meal items' });
   }
 });
@@ -201,7 +338,6 @@ router.get('/category/:category', async (req, res) => {
       items 
     });
   } catch (error) {
-    console.error('❌ Error fetching category items:', error);
     res.status(500).json({ error: 'Server error fetching category items' });
   }
 });
@@ -222,7 +358,6 @@ router.get('/random/:count', async (req, res) => {
       items: randomItems 
     });
   } catch (error) {
-    console.error('❌ Error fetching random items:', error);
     res.status(500).json({ error: 'Server error fetching random items' });
   }
 });
@@ -241,7 +376,6 @@ router.get('/random', async (req, res) => {
       items: randomItems 
     });
   } catch (error) {
-    console.error('❌ Error fetching random items:', error);
     res.status(500).json({ error: 'Server error fetching random items' });
   }
 });
@@ -257,10 +391,21 @@ router.get('/today-special', async (req, res) => {
     res.json({ 
       success: true,
       count: todaySpecialItems.length,
-      items: todaySpecialItems 
+      items: todaySpecialItems.map(item => ({
+        _id: item._id,
+        name: item.name,
+        description: item.description,
+        price: item.price,
+        originalPrice: item.originalPrice,
+        discount: item.discount || 0,
+        image: item.image,
+        category: item.category,
+        mealType: item.mealType,
+        isVeg: item.isVeg,
+        rating: item.rating
+      }))
     });
   } catch (error) {
-    console.error('❌ Error fetching today special items:', error);
     res.status(500).json({ error: 'Server error fetching today special items' });
   }
 });
@@ -281,7 +426,19 @@ router.get('/today-special/by-location', auth, async (req, res) => {
       return res.json({
         success: true,
         count: todaySpecialItems.length,
-        items: todaySpecialItems
+        items: todaySpecialItems.map(item => ({
+          _id: item._id,
+          name: item.name,
+          description: item.description,
+          price: item.price,
+          originalPrice: item.originalPrice,
+          discount: item.discount || 0,
+          image: item.image,
+          category: item.category,
+          mealType: item.mealType,
+          isVeg: item.isVeg,
+          rating: item.rating
+        }))
       });
     }
 
@@ -327,10 +484,26 @@ router.get('/today-special/by-location', auth, async (req, res) => {
       },
       nearbyKitchensCount: nearbyKitchens.length,
       itemsCount: items.length,
-      items
+      items: items.map(item => ({
+        _id: item._id,
+        name: item.name,
+        description: item.description,
+        price: item.price,
+        originalPrice: item.originalPrice,
+        discount: item.discount || 0,
+        image: item.image,
+        category: item.category,
+        mealType: item.mealType,
+        isVeg: item.isVeg,
+        rating: item.rating,
+        cloudKitchen: item.cloudKitchen ? {
+          _id: item.cloudKitchen._id,
+          name: item.cloudKitchen.name,
+          location: item.cloudKitchen.location
+        } : null
+      }))
     });
   } catch (error) {
-    console.error('❌ Error fetching today special by location:', error);
     res.status(500).json({ error: 'Server error fetching today special items' });
   }
 });
