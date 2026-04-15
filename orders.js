@@ -63,33 +63,50 @@ router.get('/', async (req, res) => {
 // Create new order
 router.post('/', auth, async (req, res) => {
   try {
-    const { items, deliveryAddress, deliveryFee, discount, paymentMethod, scheduledFor, specialInstructions } = req.body;
+    console.log('📦 ORDER REQUEST RECEIVED');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    console.log('User ID:', req.userId);
+    
+    const { items, deliveryAddress, deliveryFee, discount, paymentMethod, scheduledFor, specialInstructions, paymentId } = req.body;
+
+    if (!items || items.length === 0) {
+      console.log('❌ No items in order');
+      return res.status(400).json({ error: 'No items in order' });
+    }
 
     // 1) Load user with default address coordinates
     const user = await User.findById(req.userId);
     if (!user) {
+      console.log('❌ User not found');
       return res.status(401).json({ error: 'User not found' });
     }
+
+    console.log('✅ User found:', user.name);
 
     const defaultAddress =
       (user.addresses || []).find((a) => a.isDefault && a.location && Array.isArray(a.location.coordinates)) ||
       null;
 
     if (!defaultAddress) {
+      console.log('❌ No default address');
       return res.status(400).json({
         error: 'Please set a default address with location to place an order',
       });
     }
 
+    console.log('✅ Default address found');
     const [userLng, userLat] = defaultAddress.location.coordinates;
 
     // 2) Load all cloud kitchens from shared collection
     const kitchens = await CloudKitchen.find({});
     if (!kitchens.length) {
+      console.log('❌ No kitchens found');
       return res.status(400).json({
         error: 'No kitchens configured yet. Please try again later.',
       });
     }
+
+    console.log('✅ Found', kitchens.length, 'kitchens');
 
     let hasKitchenInRange = false;
     let nearestKm = Infinity;
@@ -109,22 +126,28 @@ router.post('/', auth, async (req, res) => {
 
     if (!hasKitchenInRange) {
       const rounded = Number.isFinite(nearestKm) ? nearestKm.toFixed(2) : 'unknown';
+      console.log('❌ No kitchen in range. Nearest:', rounded, 'km');
       return res.status(400).json({
         error: `The kitchen is not in your area. Nearest kitchen is about ${rounded} km away. Minimum 5 km coverage is required to place an order.`,
       });
     }
     const usedDistanceKm = Number.isFinite(nearestKm) ? Number(nearestKm.toFixed(2)) : null;
+    console.log('✅ Kitchen in range. Distance:', usedDistanceKm, 'km');
 
     // Calculate total amount
     let totalAmount = 0;
     const orderItems = [];
 
+    console.log('Processing', items.length, 'items...');
     for (const item of items) {
+      console.log('Looking for menu item:', item.menuItemId);
       const menuItem = await MenuItem.findById(item.menuItemId);
       if (!menuItem || !menuItem.isAvailable) {
+        console.log('❌ Menu item not available:', item.menuItemId);
         return res.status(400).json({ error: `Menu item ${item.menuItemId} not available` });
       }
 
+      console.log('✅ Found menu item:', menuItem.name, 'Price:', menuItem.price);
       const itemTotal = menuItem.price * item.quantity;
       totalAmount += itemTotal;
 
@@ -135,31 +158,44 @@ router.post('/', auth, async (req, res) => {
       });
     }
 
+    console.log('✅ Total amount calculated:', totalAmount);
     const finalAmount = totalAmount + (deliveryFee || 0) - (discount || 0);
+    console.log('✅ Final amount:', finalAmount);
 
-    const order = new Order({
+    const orderData = {
       user: req.userId,
       items: orderItems,
       totalAmount,
-      deliveryAddress: deliveryAddress || req.user.address,
+      deliveryAddress: deliveryAddress || defaultAddress,
       deliveryFee: deliveryFee || 0,
       discount: discount || 0,
       finalAmount,
       paymentMethod: paymentMethod || 'cash',
+      paymentStatus: paymentId ? 'paid' : 'pending',
       scheduledFor,
       specialInstructions
-    });
+    };
 
+    console.log('Creating order with data:', JSON.stringify(orderData, null, 2));
+    const order = new Order(orderData);
+
+    console.log('Saving order...');
     await order.save();
+    console.log('✅ Order saved! ID:', order._id);
+
     await order.populate('items.menuItem');
+    console.log('✅ Order populated');
 
     res.status(201).json({
+      success: true,
       message: 'Order placed successfully',
       order,
       deliveryDistanceKm: usedDistanceKm,
     });
   } catch (error) {
-    res.status(500).json({ error: 'Server error creating order' });
+    console.error('❌ ORDER CREATION ERROR:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: 'Server error creating order', details: error.message });
   }
 });
 
