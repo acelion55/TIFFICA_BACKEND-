@@ -5,6 +5,7 @@ const auth = require('./authmiddle');
 const Coupon = require('./coupon');
 const User = require('./user');
 const Order = require('./order');
+const Notification = require('./notification');
 
 // Get all coupons
 router.get('/', adminAuth, async (req, res) => {
@@ -92,6 +93,26 @@ router.post('/', adminAuth, async (req, res) => {
 
     await coupon.save();
     await coupon.populate('userSpecific', 'name email phone');
+    
+    // Create notification for coupon
+    if (userSpecific) {
+      await Notification.create({
+        title: '🎉 New Coupon for You!',
+        message: `You've received a ${discountType === 'percentage' ? discountValue + '%' : '₹' + discountValue} discount coupon. Use code: ${code.toUpperCase()}`,
+        type: 'coupon',
+        targetAll: false,
+        targetUser: userSpecific,
+        couponId: coupon._id,
+      });
+    } else {
+      await Notification.create({
+        title: '🎉 New Coupon Available!',
+        message: `Get ${discountType === 'percentage' ? discountValue + '%' : '₹' + discountValue} off on your next order. Use code: ${code.toUpperCase()}`,
+        type: 'coupon',
+        targetAll: true,
+        couponId: coupon._id,
+      });
+    }
     
     // If showAsPopup is true, reset popupShownTo so it shows to all eligible users
     if (showAsPopup) {

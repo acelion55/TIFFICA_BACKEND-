@@ -163,6 +163,58 @@ router.get('/search/:query', async (req, res) => {
   }
 });
 
+// Search with location filter (5km radius)
+router.get('/search/:query/by-location', auth, async (req, res) => {
+  try {
+    const { query: searchQuery } = req.params;
+    const user = await User.findById(req.userId);
+    
+    if (!user || !user.currentLocation || !user.currentLocation.latitude || !user.currentLocation.longitude) {
+      // If no location, return all search results
+      const menuItems = await MenuItem.find({
+        $or: [
+          { name: { $regex: searchQuery, $options: 'i' } },
+          { description: { $regex: searchQuery, $options: 'i' } },
+          { ingredients: { $regex: searchQuery, $options: 'i' } }
+        ],
+        isAvailable: true
+      });
+      return res.json({ menuItems });
+    }
+
+    const { latitude, longitude } = user.currentLocation;
+    const maxDistance = 5000;
+
+    const nearbyKitchens = await CloudKitchen.find({
+      location: {
+        $near: {
+          $geometry: { type: 'Point', coordinates: [longitude, latitude] },
+          $maxDistance: maxDistance
+        }
+      }
+    });
+
+    if (nearbyKitchens.length === 0) {
+      return res.json({ menuItems: [] });
+    }
+
+    const kitchenIds = nearbyKitchens.map(k => k._id);
+    const menuItems = await MenuItem.find({
+      $or: [
+        { name: { $regex: searchQuery, $options: 'i' } },
+        { description: { $regex: searchQuery, $options: 'i' } },
+        { ingredients: { $regex: searchQuery, $options: 'i' } }
+      ],
+      cloudKitchen: { $in: kitchenIds },
+      isAvailable: true
+    }).populate('cloudKitchen', 'name location');
+
+    res.json({ menuItems });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error searching menu' });
+  }
+});
+
 // Get items by meal type (Breakfast, Lunch, Dinner)
 router.get('/mealtype/:mealType', async (req, res) => {
   try {

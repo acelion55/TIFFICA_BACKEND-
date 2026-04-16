@@ -97,7 +97,7 @@ router.get('/', auth, async (req, res) => {
   try {
     const notifications = await Notification.find({
       $or: [{ targetAll: true }, { targetUser: req.userId }],
-    }).sort({ createdAt: -1 }).limit(50);
+    }).sort({ createdAt: -1 }).limit(50).populate('couponId');
 
     const withRead = notifications.map(n => ({
       ...n.toObject(),
@@ -105,6 +105,19 @@ router.get('/', auth, async (req, res) => {
     }));
 
     res.json({ success: true, notifications: withRead });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── User: get unread count ───────────────────────────────
+router.get('/unread-count', auth, async (req, res) => {
+  try {
+    const count = await Notification.countDocuments({
+      $or: [{ targetAll: true }, { targetUser: req.userId }],
+      readBy: { $ne: req.userId }
+    });
+    res.json({ success: true, count });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -111,6 +111,28 @@ router.get('/month', auth, async (req, res) => {
   }
 });
 
+// GET /api/schedule/history  — get past scheduled meals for reorder page
+router.get('/history', auth, async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split('T')[0];
+
+    const schedules = await UserSchedule.find({
+      user: req.userId,
+      date: { $lt: todayStr },
+      'meals.0': { $exists: true } // Only schedules with at least one meal
+    })
+    .populate('meals.menuItem', 'name price image mealType category')
+    .sort({ date: -1 })
+    .limit(50);
+
+    res.json({ success: true, schedules });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/schedule/save  — save or update a meal slot
 // Body: { date, mealType, menuItemId, deliveryAddress, mealPrice }
 router.post('/save', auth, async (req, res) => {
