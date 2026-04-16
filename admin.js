@@ -76,11 +76,16 @@ router.get('/stats', kitchenOrAdminAuth, async (req, res) => {
         )
       );
       
-      const [usersCount, menuItemsCount, subscriptionsCount] = await Promise.all([
+      const [usersCount, menuItemsCount, subscriptionsCount, walletStats] = await Promise.all([
         User.countDocuments(),
         MenuItem.countDocuments(menuQuery),
         Subscription.countDocuments(),
+        User.aggregate([
+          { $group: { _id: null, totalWallet: { $sum: '$walletBalance' } } }
+        ])
       ]);
+      
+      const totalWalletBalance = walletStats[0]?.totalWallet || 0;
       
       res.json({ 
         success: true, 
@@ -88,17 +93,22 @@ router.get('/stats', kitchenOrAdminAuth, async (req, res) => {
           users: usersCount, 
           orders: filteredOrders.length, 
           menuItems: menuItemsCount, 
-          subscriptions: subscriptionsCount 
+          subscriptions: subscriptionsCount,
+          totalWalletBalance: totalWalletBalance
         } 
       });
     } else {
-      const [usersCount, ordersCount, menuItemsCount, subscriptionsCount] = await Promise.all([
+      const [usersCount, ordersCount, menuItemsCount, subscriptionsCount, walletStats] = await Promise.all([
         User.countDocuments(),
         Order.countDocuments(),
         MenuItem.countDocuments(),
         Subscription.countDocuments(),
+        User.aggregate([
+          { $group: { _id: null, totalWallet: { $sum: '$walletBalance' } } }
+        ])
       ]);
-      res.json({ success: true, stats: { users: usersCount, orders: ordersCount, menuItems: menuItemsCount, subscriptions: subscriptionsCount } });
+      const totalWalletBalance = walletStats[0]?.totalWallet || 0;
+      res.json({ success: true, stats: { users: usersCount, orders: ordersCount, menuItems: menuItemsCount, subscriptions: subscriptionsCount, totalWalletBalance: totalWalletBalance } });
     }
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch stats' });

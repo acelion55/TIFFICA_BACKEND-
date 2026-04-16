@@ -3,6 +3,7 @@ const axios   = require('axios');
 const crypto  = require('crypto');
 const auth    = require('./authmiddle');
 const User    = require('./user');
+const { Subscription } = require('./subscription');
 
 const router = express.Router();
 
@@ -102,7 +103,26 @@ router.post('/wallet-credit', auth, async (req, res) => {
 
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    
+    // Create subscription record for tracking
+    try {
+      const subscription = new Subscription({
+        user: req.userId,
+        planName: `Wallet Recharge ₹${amount}`,
+        amount: amount,
+        userSnapshot: {
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          address: user.addresses?.[0]?.fullAddress || user.address?.street || 'N/A'
+        }
+      });
+      await subscription.save();
+      console.log('✅ Subscription record created for wallet recharge:', subscription._id);
+    } catch (subError) {
+      console.error('⚠️ Warning: Could not create subscription record:', subError.message);
+      // Don't fail the wallet credit, just log the error
+    }
+
     return res.json({ success: true, walletBalance: user.walletBalance, user });
   } catch (err) {
     

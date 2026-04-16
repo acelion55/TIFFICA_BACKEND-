@@ -52,7 +52,7 @@ router.get('/', async (req, res) => {
   try {
     const orders = await Order.find()
       .populate('user', 'name email phone')
-      .populate('items.menuItem', 'name price category')
+      .populate('items.menuItem', 'name price image category')
       .sort({ createdAt: -1 });
     res.json({ success: true, orders });
   } catch (error) {
@@ -208,7 +208,7 @@ router.get('/my-orders', auth, async (req, res) => {
     if (status) filter.status = status;
 
     const orders = await Order.find(filter)
-      .populate('items.menuItem')
+      .populate('items.menuItem', 'name price image category')
       .sort('-createdAt')
       .limit(parseInt(limit))
       .skip((parseInt(page) - 1) * parseInt(limit));
