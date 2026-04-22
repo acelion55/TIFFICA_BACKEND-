@@ -5,6 +5,7 @@ const MenuItem = require('./menuitems');
 const auth = require('./authmiddle');
 const User = require('./user');
 const CloudKitchen = require('./cloudkitchen');
+const Delivery = require('./delivery');
 const axios = require('axios');
 const nodemailer = require('nodemailer');
 
@@ -225,8 +226,89 @@ router.post('/', auth, async (req, res) => {
     await order.save();
     console.log('✅ Order saved! ID:', order._id);
 
-    await order.populate('items.menuItem');
-    console.log('✅ Order populated');
+    // Populate order with menu items and their kitchens
+    await order.populate({
+      path: 'items.menuItem',
+      populate: {
+        path: 'cloudKitchen',
+        model: 'CloudKitchen'
+      }
+    });
+    console.log('✅ Order populated with menu items and kitchens');
+
+    // Create delivery document
+    try {
+      // Find which kitchen the order items belong to
+      let orderKitchen = null;
+      
+      // Get kitchen from first menu item
+      if (order.items[0]?.menuItem?.cloudKitchen) {
+        orderKitchen = order.items[0].menuItem.cloudKitchen;
+        console.log('🏪 Using kitchen from menu item:', orderKitchen.name);
+      } else {
+        // Fallback: find nearest kitchen if no kitchen assigned to menu items
+        console.log('⚠️ No kitchen assigned to menu items, finding nearest kitchen...');
+        let minDistance = Infinity;
+        
+        for (const k of kitchens) {
+          const coords = k.location?.coordinates || [];
+          const kLng = coords[0];
+          const kLat = coords[1];
+          if (!Number.isFinite(kLat) || !Number.isFinite(kLng)) continue;
+          
+          const distKm = await routingDistanceKm(userLat, userLng, kLat, kLng);
+          if (distKm < minDistance) {
+            minDistance = distKm;
+            orderKitchen = k;
+          }
+        }
+        console.log('🏪 Using nearest kitchen:', orderKitchen?.name);
+      }
+
+      if (orderKitchen && orderKitchen.location && orderKitchen.location.coordinates) {
+        // Calculate distance from order's kitchen to customer
+        const kitchenCoords = orderKitchen.location.coordinates;
+        const kitchenLng = kitchenCoords[0];
+        const kitchenLat = kitchenCoords[1];
+        
+        const distanceKm = await routingDistanceKm(kitchenLat, kitchenLng, userLat, userLng);
+
+        const delivery = new Delivery({
+          orderId: order._id,
+          pickupLocation: {
+            type: 'Point',
+            coordinates: [kitchenLng, kitchenLat], // [longitude, latitude]
+            address: orderKitchen.name || 'Tiffica Kitchen',
+            restaurantName: orderKitchen.name || 'Tiffica Kitchen',
+            contactPhone: '+91 9876543210'
+          },
+          dropLocation: {
+            type: 'Point',
+            coordinates: [userLng, userLat], // [longitude, latitude]
+            address: defaultAddress.fullAddress || defaultAddress.area || 'Customer Address',
+            customerName: user.name,
+            contactPhone: user.phone,
+            instructions: specialInstructions || ''
+          },
+          distance: distanceKm,
+          estimatedEarning: Math.round(distanceKm * 10), // ₹10 per km
+          deliveryFee: deliveryFee || 0,
+          status: 'pending'
+        });
+
+        await delivery.save();
+        console.log('✅ Delivery created:', delivery._id);
+        console.log('📍 Pickup:', orderKitchen.name, '- Coordinates:', kitchenLng, kitchenLat);
+        console.log('📍 Drop:', user.name, '- Coordinates:', userLng, userLat);
+        console.log('📏 Distance:', distanceKm.toFixed(2), 'km');
+      } else {
+        console.error('❌ No valid kitchen found for delivery');
+      }
+    } catch (deliveryErr) {
+      console.error('❌ Failed to create delivery document:', deliveryErr);
+      console.error('Error details:', deliveryErr.message);
+      // Don't fail the order if delivery creation fails
+    }
 
     // Send email notification
     sendOrderNotification(order, user, scheduledFor ? 'scheduled' : 'instant').catch(err => 
