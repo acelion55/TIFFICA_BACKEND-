@@ -23,10 +23,27 @@ router.get('/', adminAuth, async (req, res) => {
 // Get user performance data
 router.get('/user-performance', adminAuth, async (req, res) => {
   try {
+    const { startDate, endDate } = req.query;
+    
+    // Build date filter
+    let dateFilter = {};
+    if (startDate || endDate) {
+      dateFilter.createdAt = {};
+      if (startDate) {
+        dateFilter.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999);
+        dateFilter.createdAt.$lte = endDateObj;
+      }
+    }
+    
     const users = await User.find().select('name email phone walletBalance createdAt');
     
     const userPerformance = await Promise.all(users.map(async (user) => {
-      const orders = await Order.find({ user: user._id, status: { $ne: 'cancelled' } });
+      const orderFilter = { user: user._id, status: { $ne: 'cancelled' }, ...dateFilter };
+      const orders = await Order.find(orderFilter);
       const totalOrders = orders.length;
       const totalSpent = orders.reduce((sum, order) => sum + (order.finalAmount || 0), 0);
       const avgOrderValue = totalOrders > 0 ? totalSpent / totalOrders : 0;
