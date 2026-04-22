@@ -14,7 +14,8 @@ const userScheduleSchema = new mongoose.Schema({
       addressType: String,
     },
     savedAt: { type: Date, default: Date.now },
-    lockedAt: { type: Date, default: null }, // set when saved — used for 3hr lock check
+    lockedAt: { type: Date, default: null },
+    mealPrice: { type: Number, default: 0 },
   }],
 }, { timestamps: true });
 

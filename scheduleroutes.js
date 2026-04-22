@@ -118,17 +118,26 @@ router.get('/history', auth, async (req, res) => {
     today.setHours(0, 0, 0, 0);
     const todayStr = today.toISOString().split('T')[0];
 
+    console.log('📅 Fetching schedule history for user:', req.userId);
+    console.log('📅 Today date:', todayStr);
+
     const schedules = await UserSchedule.find({
       user: req.userId,
       date: { $lt: todayStr },
-      'meals.0': { $exists: true } // Only schedules with at least one meal
+      'meals.0': { $exists: true }
     })
     .populate('meals.menuItem', 'name price image mealType category')
     .sort({ date: -1 })
     .limit(50);
 
+    console.log('📅 Found schedules:', schedules.length);
+    if (schedules.length > 0) {
+      console.log('📅 Sample schedule:', JSON.stringify(schedules[0], null, 2));
+    }
+
     res.json({ success: true, schedules });
   } catch (err) {
+    console.error('❌ Schedule history error:', err);
     res.status(500).json({ error: err.message });
   }
 });
