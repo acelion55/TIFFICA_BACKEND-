@@ -9,15 +9,17 @@ const userSchema = new mongoose.Schema({
   },
   email: {
     type: String,
-    required: true,
+    required: false,
     unique: true,
+    sparse: true,
     lowercase: true,
     trim: true
   },
   phone: {
     type: String,
     required: true,
-    unique: true
+    unique: true,
+    trim: true
   },
   password: {
     type: String,
@@ -110,6 +112,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     enum: ['user', 'admin', 'kitchen-owner', 'delivery'],
     default: 'user'
+  },
+  isOnline: {
+    type: Boolean,
+    default: false
   },
   assignedKitchen: {
     type: mongoose.Schema.Types.ObjectId,

@@ -6,6 +6,44 @@ const UserSchedule = require('./userschedule');
 const Order = require('./order');
 const MenuItem = require('./menuitems');
 const CloudKitchen = require('./cloudkitchen');
+const nodemailer = require('nodemailer');
+
+// Email transporter
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+// Send meal lock notification email
+async function sendMealLockNotification(schedule, user, meal, menuItem) {
+  try {
+    const html = `
+      <div style="font-family:sans-serif;max-width:600px;margin:auto;padding:24px;background:#fff;border:1px solid #e5e7eb;border-radius:12px">
+        <h2 style="color:#f97316;margin:0 0 16px">🔒 Meal Locked</h2>
+        <p style="color:#374151;margin:0 0 16px"><strong>Customer:</strong> ${user.name} (${user.phone})</p>
+        <p style="color:#374151;margin:0 0 16px"><strong>Date:</strong> ${schedule.date}</p>
+        <p style="color:#374151;margin:0 0 16px"><strong>Meal Type:</strong> ${meal.mealType}</p>
+        <p style="color:#374151;margin:0 0 16px"><strong>Delivery Time:</strong> ${meal.deliveryTime}</p>
+        <h3 style="color:#111827;margin:24px 0 12px">Item:</h3>
+        <p style="color:#374151;margin:0 0 8px"><strong>${menuItem.name}</strong></p>
+        <p style="color:#111827;font-size:18px;font-weight:bold;margin:16px 0">Price: ₹${meal.mealPrice}</p>
+        ${meal.deliveryAddress?.fullAddress ? `<p style="color:#374151;margin:16px 0"><strong>Delivery Address:</strong> ${meal.deliveryAddress.fullAddress}</p>` : ''}
+      </div>`;
+
+    await transporter.sendMail({
+      from: `"Tiffica Meals" <${process.env.EMAIL_USER}>`,
+      to: 'harshvardhan53394@gmail.com, gehlotutkarsh88@gmail.com',
+      subject: `Meal Locked - ${meal.mealType} on ${schedule.date}`,
+      html,
+    });
+    console.log('✅ Meal lock notification email sent');
+  } catch (err) {
+    console.error('❌ Failed to send meal lock notification email:', err.message);
+  }
+}
 
 // GET /api/schedule/menu/:mealType  — get menu items by meal type and user location
 router.get('/menu/:mealType', auth, async (req, res) => {
@@ -94,6 +132,51 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
+// GET /api/schedule/check-lock?date=yyyy-MM-dd&mealType=Breakfast  — check if meal is within 3 hours
+router.get('/check-lock', auth, async (req, res) => {
+  try {
+    const { date, mealType } = req.query;
+    if (!date || !mealType) return res.status(400).json({ error: 'date and mealType required' });
+
+    const schedule = await UserSchedule.findOne({ user: req.userId, date });
+    if (!schedule) {
+      return res.json({ success: true, withinThreeHours: false, canEdit: true });
+    }
+
+    const meal = schedule.meals.find(m => m.mealType === mealType);
+    if (!meal) {
+      return res.json({ success: true, withinThreeHours: false, canEdit: true });
+    }
+
+    const deliveryTimeStr = meal.deliveryTime || (mealType === 'Breakfast' ? '08:00' : mealType === 'Lunch' ? '13:00' : '19:30');
+    const [hours, minutes] = deliveryTimeStr.split(':').map(Number);
+    const deliveryDateTime = new Date(date);
+    deliveryDateTime.setHours(hours, minutes, 0, 0);
+    
+    const hoursUntilDelivery = (deliveryDateTime.getTime() - Date.now()) / 3600000;
+    
+    if (hoursUntilDelivery < 0) {
+      return res.json({ success: true, withinThreeHours: false, canEdit: false, message: 'Delivery time has passed' });
+    }
+    
+    const withinThreeHours = hoursUntilDelivery <= 3;
+    const oldPrice = meal.mealPrice || 0;
+    const refundPercentage = withinThreeHours ? 60 : 100;
+    
+    res.json({ 
+      success: true, 
+      withinThreeHours,
+      canEdit: true,
+      hoursUntilDelivery: hoursUntilDelivery.toFixed(1),
+      oldPrice,
+      refundPercentage,
+      refundAmount: Math.floor(oldPrice * refundPercentage / 100)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/schedule/month?month=yyyy-MM  — get all scheduled dates in a month
 router.get('/month', auth, async (req, res) => {
   try {
@@ -121,18 +204,26 @@ router.get('/history', auth, async (req, res) => {
     console.log('📅 Fetching schedule history for user:', req.userId);
     console.log('📅 Today date:', todayStr);
 
+    // Fetch all schedules with meals (for testing, include future dates too)
     const schedules = await UserSchedule.find({
       user: req.userId,
-      date: { $lt: todayStr },
       'meals.0': { $exists: true }
     })
-    .populate('meals.menuItem', 'name price image mealType category')
+    .populate('meals.menuItem', 'name price image mealType category description')
     .sort({ date: -1 })
     .limit(50);
 
     console.log('📅 Found schedules:', schedules.length);
     if (schedules.length > 0) {
-      console.log('📅 Sample schedule:', JSON.stringify(schedules[0], null, 2));
+      console.log('📅 Sample schedule dates:', schedules.map(s => s.date).slice(0, 5));
+      console.log('📅 First schedule meals count:', schedules[0].meals.length);
+    } else {
+      console.log('📅 No schedules found. Checking all schedules for this user...');
+      const allUserSchedules = await UserSchedule.find({ user: req.userId });
+      console.log('📅 Total schedules for user:', allUserSchedules.length);
+      if (allUserSchedules.length > 0) {
+        console.log('📅 All schedule dates:', allUserSchedules.map(s => ({ date: s.date, mealsCount: s.meals.length })));
+      }
     }
 
     res.json({ success: true, schedules });
@@ -147,6 +238,8 @@ router.get('/history', auth, async (req, res) => {
 router.post('/save', auth, async (req, res) => {
   try {
     const { date, mealType, menuItemId, deliveryAddress, deliveryTime, mealPrice, deductAmount } = req.body;
+    console.log('🔍 SAVE REQUEST:', { date, mealType, menuItemId, mealPrice, deductAmount, userId: req.userId });
+    
     if (!date || !mealType || !menuItemId) {
       return res.status(400).json({ error: 'date, mealType, menuItemId required' });
     }
@@ -176,41 +269,37 @@ router.post('/save', auth, async (req, res) => {
 
     // Find or create schedule doc for this date
     let schedule = await UserSchedule.findOne({ user: req.userId, date });
+    console.log('🔍 Existing schedule:', schedule ? 'Found' : 'Not found');
 
     if (!schedule) {
       schedule = new UserSchedule({ user: req.userId, date, meals: [] });
+      console.log('🔍 Created new schedule');
     }
 
     // Check 3hr lock for existing meal on this slot
     const existingMeal = schedule.meals.find(m => m.mealType === mealType);
     const isNewMeal = !existingMeal;
+    console.log('🔍 Is new meal:', isNewMeal, 'Existing meal:', existingMeal ? 'Yes' : 'No');
 
+    // Check if meal is within 3 hours of delivery time (for warning, but still allow)
+    let withinThreeHours = false;
     if (existingMeal?.lockedAt) {
-      const hoursSinceLock = (Date.now() - new Date(existingMeal.lockedAt).getTime()) / 3600000;
-      if (hoursSinceLock > 3) {
-        return res.status(400).json({ error: 'Cannot change meal — 3 hour edit window has passed' });
+      const deliveryTimeStr = existingMeal.deliveryTime || (mealType === 'Breakfast' ? '08:00' : mealType === 'Lunch' ? '13:00' : '19:30');
+      const [hours, minutes] = deliveryTimeStr.split(':').map(Number);
+      const deliveryDateTime = new Date(date);
+      deliveryDateTime.setHours(hours, minutes, 0, 0);
+      
+      const hoursUntilDelivery = (deliveryDateTime.getTime() - Date.now()) / 3600000;
+      
+      // If delivery time has passed, cannot edit
+      if (hoursUntilDelivery < 0) {
+        return res.status(400).json({ error: 'Cannot change meal — delivery time has passed' });
       }
-    }
-
-    // Deduct wallet only when needed (new lock)
-    if (isNewMeal && deductAmount > 0) {
-      const user = await User.findById(req.userId);
-      if (!user) {
-        return res.status(404).json({ error: 'User not found' });
+      
+      // Check if within 3 hours (for refund calculation)
+      if (hoursUntilDelivery <= 3 && hoursUntilDelivery >= 0) {
+        withinThreeHours = true;
       }
-
-      // Check wallet balance
-      if (user.walletBalance < deductAmount) {
-        return res.status(400).json({ 
-          error: 'Insufficient wallet balance',
-          required: deductAmount,
-          available: user.walletBalance
-        });
-      }
-
-      // Deduct from wallet
-      user.walletBalance -= deductAmount;
-      await user.save();
     }
 
     // If mealPrice not provided, load from menuItem
@@ -218,6 +307,83 @@ router.post('/save', auth, async (req, res) => {
     if (!effectiveMealPrice && menuItemId) {
       const menuItemDoc = await MenuItem.findById(menuItemId).select('price').lean();
       if (menuItemDoc) effectiveMealPrice = menuItemDoc.price || 0;
+      console.log('🔍 Loaded price from MenuItem:', effectiveMealPrice);
+    }
+    console.log('🔍 Effective meal price:', effectiveMealPrice);
+
+    // Handle wallet deduction/refund when changing meals
+    if (!isNewMeal && existingMeal) {
+      // User is changing an existing meal
+      const oldMealPrice = existingMeal.mealPrice || 0;
+      const newMealPrice = effectiveMealPrice || 0;
+      
+      if (withinThreeHours) {
+        // Within 3 hours: refund 60% of old meal, deduct 100% of new meal
+        const refundAmount = Math.floor(oldMealPrice * 0.6);
+        const netDeduction = newMealPrice - refundAmount;
+        
+        const user = await User.findById(req.userId);
+        if (!user) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+        
+        if (netDeduction > 0 && user.walletBalance < netDeduction) {
+          return res.status(400).json({ 
+            error: 'Insufficient wallet balance',
+            required: netDeduction,
+            available: user.walletBalance
+          });
+        }
+        
+        user.walletBalance -= netDeduction;
+        await user.save();
+      } else {
+        // More than 3 hours: full refund of old meal, deduct new meal
+        const netDeduction = newMealPrice - oldMealPrice;
+        
+        const user = await User.findById(req.userId);
+        if (!user) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+        
+        if (netDeduction > 0 && user.walletBalance < netDeduction) {
+          return res.status(400).json({ 
+            error: 'Insufficient wallet balance',
+            required: netDeduction,
+            available: user.walletBalance
+          });
+        }
+        
+        user.walletBalance -= netDeduction;
+        await user.save();
+      }
+    } else if (isNewMeal) {
+      // New meal: deduct full amount
+      const amountToDeduct = deductAmount !== undefined ? deductAmount : effectiveMealPrice;
+      console.log('🔍 New meal - Amount to deduct:', amountToDeduct);
+      
+      if (amountToDeduct > 0) {
+        const user = await User.findById(req.userId);
+        if (!user) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+
+        console.log('🔍 User wallet balance before:', user.walletBalance);
+        
+        // Check wallet balance
+        if (user.walletBalance < amountToDeduct) {
+          return res.status(400).json({ 
+            error: 'Insufficient wallet balance',
+            required: amountToDeduct,
+            available: user.walletBalance
+          });
+        }
+
+        // Deduct from wallet
+        user.walletBalance -= amountToDeduct;
+        await user.save();
+        console.log('🔍 User wallet balance after:', user.walletBalance);
+      }
     }
 
     // Upsert the meal slot
@@ -230,15 +396,30 @@ router.post('/save', auth, async (req, res) => {
       lockedAt: existingMeal?.lockedAt || new Date(), // set lockedAt only on first save
       mealPrice: effectiveMealPrice || 0, // store price for refund calculation
     };
+    console.log('🔍 Meal data to save:', mealData);
 
     if (existingMeal) {
       Object.assign(existingMeal, mealData);
+      console.log('🔍 Updated existing meal');
     } else {
       schedule.meals.push(mealData);
+      console.log('🔍 Added new meal to schedule');
     }
 
+    console.log('🔍 Schedule before save:', JSON.stringify(schedule, null, 2));
     await schedule.save();
+    console.log('✅ Schedule saved successfully');
     await schedule.populate('meals.menuItem', 'name price image mealType category description');
+
+    // Send email notification for new meal lock
+    if (isNewMeal) {
+      const menuItem = await MenuItem.findById(menuItemId);
+      if (menuItem) {
+        sendMealLockNotification(schedule, await User.findById(req.userId), mealData, menuItem).catch(err => 
+          console.error('Email notification failed:', err)
+        );
+      }
+    }
 
     // Get updated user to return wallet balance
     const user = await User.findById(req.userId);
@@ -248,9 +429,10 @@ router.post('/save', auth, async (req, res) => {
       success: true, 
       schedule,
       walletBalance,
-      message: isNewMeal ? `✅ Menu locked! ₹${mealPrice} deducted from wallet` : 'Meal updated'
+      message: isNewMeal ? `✅ Menu locked! ₹${effectiveMealPrice} deducted from wallet` : 'Meal updated'
     });
   } catch (err) {
+    console.error('❌ Error saving schedule:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -336,11 +518,23 @@ router.patch('/update-time', auth, async (req, res) => {
     const meal = schedule.meals.find(m => m.mealType === mealType);
     if (!meal) return res.status(404).json({ error: 'Meal not found' });
 
-    // Check 3hr lock window
+    // Check 3hr lock window based on delivery time
     if (meal?.lockedAt) {
-      const hoursSinceLock = (Date.now() - new Date(meal.lockedAt).getTime()) / 3600000;
-      if (hoursSinceLock > 3) {
-        return res.status(400).json({ error: 'Cannot update meal — 3 hour edit window has passed' });
+      const deliveryTimeStr = meal.deliveryTime || (mealType === 'Breakfast' ? '08:00' : mealType === 'Lunch' ? '13:00' : '19:30');
+      const [hours, minutes] = deliveryTimeStr.split(':').map(Number);
+      const deliveryDateTime = new Date(date);
+      deliveryDateTime.setHours(hours, minutes, 0, 0);
+      
+      const hoursUntilDelivery = (deliveryDateTime.getTime() - Date.now()) / 3600000;
+      
+      // Only lock if within 3 hours of delivery time
+      if (hoursUntilDelivery <= 3 && hoursUntilDelivery >= 0) {
+        return res.status(400).json({ error: 'Cannot update meal — within 3 hours of delivery time' });
+      }
+      
+      // If delivery time has passed, cannot edit
+      if (hoursUntilDelivery < 0) {
+        return res.status(400).json({ error: 'Cannot update meal — delivery time has passed' });
       }
     }
 

@@ -65,6 +65,11 @@ const orderSchema = new mongoose.Schema({
   specialInstructions: String,
   rating: Number,
   review: String,
+  deliveryPartner: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
   createdAt: {
     type: Date,
     default: Date.now

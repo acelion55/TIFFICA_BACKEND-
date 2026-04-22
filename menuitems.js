@@ -39,7 +39,7 @@ const menuItemSchema = new mongoose.Schema({
     category: {
         type: String,
         required: true,
-        enum: ['Veg', 'Non-Veg', 'Egg', 'Vegan', 'dal', 'roti', 'sabji', 'raita', 'Dal', 'Roti', 'Sabji', 'Raita']
+        enum: ['Veg', 'Egg', 'Vegan', 'dal', 'roti', 'sabji', 'raita', 'Dal', 'Roti', 'Sabji', 'Raita']
     },
     mealType: {
         type: String,

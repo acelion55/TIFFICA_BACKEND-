@@ -124,6 +124,9 @@ router.get('/today', kitchenOrAdminAuth, async (req, res) => {
     tomorrow.setDate(tomorrow.getDate() + 1);
     const todayStr = today.toISOString().split('T')[0];
 
+    console.log('📅 Admin Today - Fetching data for:', todayStr);
+    console.log('👤 User role:', req.user.role);
+
     let [todayOrders, scheduledOrders] = await Promise.all([
       Order.find({ createdAt: { $gte: today, $lt: tomorrow } })
         .populate('user', 'name email phone')
@@ -133,6 +136,19 @@ router.get('/today', kitchenOrAdminAuth, async (req, res) => {
         .populate('user', 'name email phone')
         .populate('meals.menuItem', 'name price image mealType cloudKitchen'),
     ]);
+
+    console.log('📅 Found today orders:', todayOrders.length);
+    console.log('📅 Found scheduled orders:', scheduledOrders.length);
+    if (scheduledOrders.length > 0) {
+      console.log('📅 Sample scheduled order:', JSON.stringify(scheduledOrders[0], null, 2));
+    } else {
+      console.log('📅 No scheduled orders for today. Checking all schedules...');
+      const allSchedules = await UserSchedule.find({});
+      console.log('📅 Total schedules in DB:', allSchedules.length);
+      if (allSchedules.length > 0) {
+        console.log('📅 All schedule dates:', allSchedules.map(s => ({ date: s.date, user: s.user, mealsCount: s.meals.length })).slice(0, 10));
+      }
+    }
 
     // Filter for kitchen owner
     if (req.user.role === 'kitchen-owner' && req.user.assignedKitchen) {
@@ -180,6 +196,7 @@ router.get('/today', kitchenOrAdminAuth, async (req, res) => {
       instantOrders,
     });
   } catch (err) {
+    console.error('❌ Admin Today error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -219,7 +236,17 @@ router.post('/users', adminAuth, async (req, res) => {
 router.put('/users/:id', adminAuth, async (req, res) => {
   try {
     const { name, email, phone, password, walletBalance, role, assignedKitchen } = req.body;
-    const updateData = { name, email, phone, walletBalance, role };
+    
+    if (!phone || phone.length !== 10) {
+      return res.status(400).json({ error: 'Valid 10-digit phone number required' });
+    }
+    
+    const updateData = { name, phone, walletBalance, role };
+    
+    // Only add email if provided
+    if (email && email.trim()) {
+      updateData.email = email;
+    }
     
     // Only update password if provided
     if (password && password.trim() !== '') {
@@ -329,7 +356,7 @@ router.get('/menu', kitchenOrAdminAuth, async (req, res) => {
 
 router.post('/menu', kitchenOrAdminAuth, async (req, res) => {
   try {
-    const { name, description, price, originalPrice, discount, image, category, mealType, cloudKitchen, isSpecial, isTodaySpecial, isVeg, ingredients, availableQuantity, availableUntil } = req.body;
+    const { name, description, price, originalPrice, discount, image, category, mealType, cloudKitchen, isSpecial, isTodaySpecial, isVeg, ingredients, availableQuantity, availableUntil, rating } = req.body;
     if (!name || !description || !price || !image || !category) return res.status(400).json({ error: 'Please provide all required fields' });
     
     // Kitchen owner can only add items to their kitchen
@@ -362,7 +389,8 @@ router.post('/menu', kitchenOrAdminAuth, async (req, res) => {
       isTodaySpecial: isTodaySpecial || false, 
       ingredients: ingredients || [],
       availableQuantity: availableQuantity || null,
-      availableUntil: availableUntil || null
+      availableUntil: availableUntil || null,
+      rating: rating || 0
     });
     await menuItem.save();
     await menuItem.populate('cloudKitchen', 'name');
@@ -391,7 +419,7 @@ router.delete('/menu/:id', kitchenOrAdminAuth, async (req, res) => {
 
 router.put('/menu/:id', kitchenOrAdminAuth, async (req, res) => {
   try {
-    const { name, description, price, originalPrice, discount, image, category, mealType, cloudKitchen, isSpecial, isTodaySpecial, isVeg, ingredients, availableQuantity, availableUntil } = req.body;
+    const { name, description, price, originalPrice, discount, image, category, mealType, cloudKitchen, isSpecial, isTodaySpecial, isVeg, ingredients, availableQuantity, availableUntil, rating } = req.body;
     
     let query = { _id: req.params.id };
     
@@ -415,7 +443,8 @@ router.put('/menu/:id', kitchenOrAdminAuth, async (req, res) => {
       isTodaySpecial: isTodaySpecial || false, 
       ingredients: ingredients || [],
       availableQuantity: availableQuantity || null,
-      availableUntil: availableUntil || null
+      availableUntil: availableUntil || null,
+      rating: rating || 0
     };
     
     // Kitchen owner restrictions
@@ -496,6 +525,102 @@ router.delete('/orders/:id', adminAuth, async (req, res) => {
     res.json({ success: true, message: 'Order deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete order' });
+  }
+});
+
+// ── Delivery Partners ────────────────────────────────────
+router.get('/delivery-partners', adminAuth, async (req, res) => {
+  try {
+    const partners = await User.find({ role: 'delivery' })
+      .select('name phone isOnline walletBalance')
+      .sort({ isOnline: -1, name: 1 });
+    res.json({ success: true, partners });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch delivery partners' });
+  }
+});
+
+router.patch('/orders/:id/assign-delivery', adminAuth, async (req, res) => {
+  try {
+    const { deliveryPartnerId } = req.body;
+    console.log('📦 Assign delivery request:', { orderId: req.params.id, deliveryPartnerId });
+    
+    if (!deliveryPartnerId) {
+      return res.status(400).json({ error: 'Delivery partner ID required' });
+    }
+    
+    const order = await Order.findById(req.params.id)
+      .populate('user', 'name email phone')
+      .populate('items.menuItem', 'name price');
+    
+    if (!order) {
+      console.log('❌ Order not found:', req.params.id);
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    
+    console.log('✅ Order found:', order._id);
+    
+    // Create delivery record
+    const Delivery = require('./delivery');
+    const User = require('./user');
+    
+    // Check if delivery already exists for this order
+    let delivery = await Delivery.findOne({ orderId: order._id });
+    console.log('🔍 Existing delivery:', delivery ? 'Found' : 'Not found');
+    
+    if (!delivery) {
+      // Get user's default address
+      const User = require('./user');
+      const user = await User.findById(order.user._id);
+      const defaultAddress = user?.addresses?.find(a => a.isDefault);
+      
+      console.log('📍 User address:', defaultAddress ? 'Found' : 'Not found');
+      
+      // Create new delivery
+      delivery = new Delivery({
+        orderId: order._id,
+        deliveryPartner: deliveryPartnerId,
+        status: 'assigned',
+        pickupLocation: {
+          type: 'Point',
+          restaurantName: 'Tiffica Kitchen',
+          address: 'Main Kitchen',
+          coordinates: [75.7873, 26.9124]
+        },
+        dropLocation: {
+          type: 'Point',
+          customerName: order.user.name,
+          contactPhone: order.user.phone,
+          address: defaultAddress?.fullAddress || order.deliveryAddress?.street || 'Address not available',
+          coordinates: defaultAddress?.location?.coordinates || [75.7873, 26.9124]
+        },
+        estimatedEarning: 30,
+        distance: 5,
+        timestamps: {
+          assigned: new Date()
+        }
+      });
+      await delivery.save();
+      console.log('✅ Delivery created:', delivery._id);
+    } else {
+      delivery.deliveryPartner = deliveryPartnerId;
+      delivery.status = 'assigned';
+      if (!delivery.timestamps) delivery.timestamps = {};
+      delivery.timestamps.assigned = new Date();
+      await delivery.save();
+      console.log('✅ Delivery updated:', delivery._id);
+    }
+    
+    // Update order
+    order.deliveryPartner = deliveryPartnerId;
+    order.status = 'confirmed';
+    await order.save();
+    console.log('✅ Order updated to confirmed');
+    
+    res.json({ success: true, message: 'Delivery partner assigned', order, delivery });
+  } catch (error) {
+    console.error('❌ Assign delivery error:', error);
+    res.status(500).json({ error: error.message || 'Failed to assign delivery partner' });
   }
 });
 

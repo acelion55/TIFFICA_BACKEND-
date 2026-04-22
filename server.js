@@ -43,6 +43,12 @@ app.use('/api/upload', require('./upload'));
 app.use('/api/notifications', require('./notifications'));
 app.use('/api/kitchen-owner', require('./kitchenowner'));
 app.use('/api/coupons', require('./coupons'));
+app.use('/api/delivery-auth', require('./deliveryauth').router);
+app.use('/api/delivery', require('./deliveryroutes'));
+
+console.log('✅ Delivery routes registered:');
+console.log('   - /api/delivery-auth/*');
+console.log('   - /api/delivery/*');
 
 // Root route
 app.get('/', (req, res) => {
@@ -65,9 +71,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Tiffin App API is running' });
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+// 404 handler - must be after all routes
+app.use((req, res, next) => {
+  console.log('❌ 404 - Route not found:', req.method, req.path);
+  res.status(404).json({ error: 'Route not found', path: req.path });
 });
 
 // Error handling middleware
@@ -83,6 +90,10 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, "0.0.0.0", () => {
+const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on ${PORT}`);
 });
+
+// Initialize WebSocket
+const { initializeWebSocket } = require('./websocket');
+initializeWebSocket(server);

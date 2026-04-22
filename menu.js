@@ -220,11 +220,14 @@ router.get('/mealtype/:mealType', async (req, res) => {
   try {
     const { mealType } = req.params;
     
+    console.log('🍽️ Menu by mealType request:', mealType);
+    
     // Validate meal type
     const validMealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
     const capitalizedMealType = mealType.charAt(0).toUpperCase() + mealType.slice(1).toLowerCase();
     
     if (!validMealTypes.includes(capitalizedMealType)) {
+      console.log('❌ Invalid meal type:', mealType);
       return res.status(400).json({ error: 'Invalid meal type' });
     }
 
@@ -232,6 +235,14 @@ router.get('/mealtype/:mealType', async (req, res) => {
       mealType: capitalizedMealType,
       isAvailable: true
     }).sort({ createdAt: -1 });
+
+    console.log('🍽️ Found items:', items.length);
+    if (items.length === 0) {
+      console.log('🍽️ No items found. Checking all menu items...');
+      const allItems = await MenuItem.find({});
+      console.log('🍽️ Total items in DB:', allItems.length);
+      console.log('🍽️ Meal types in DB:', [...new Set(allItems.map(i => i.mealType))]);
+    }
 
     res.json({ 
       success: true,
@@ -251,6 +262,7 @@ router.get('/mealtype/:mealType', async (req, res) => {
       }))
     });
   } catch (error) {
+    console.error('❌ Menu by mealType error:', error);
     res.status(500).json({ error: 'Server error fetching meal items' });
   }
 });
@@ -260,22 +272,31 @@ router.get('/mealtype/:mealType/by-location', auth, async (req, res) => {
   try {
     const { mealType } = req.params;
     
+    console.log('🍽️ Menu by mealType with location request:', mealType);
+    console.log('🍽️ User ID:', req.userId);
+    
     // Validate meal type
     const validMealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
     const capitalizedMealType = mealType.charAt(0).toUpperCase() + mealType.slice(1).toLowerCase();
     
     if (!validMealTypes.includes(capitalizedMealType)) {
+      console.log('❌ Invalid meal type:', mealType);
       return res.status(400).json({ error: 'Invalid meal type' });
     }
 
     const user = await User.findById(req.userId);
     
+    console.log('🍽️ User location:', user?.currentLocation);
+    
     if (!user || !user.currentLocation || !user.currentLocation.latitude || !user.currentLocation.longitude) {
+      console.log('🍽️ No location set, returning all items');
       // If no location, return all items
       const items = await MenuItem.find({
         mealType: capitalizedMealType,
         isAvailable: true
       }).sort({ createdAt: -1 });
+      
+      console.log('🍽️ Found items (no location):', items.length);
       
       return res.json({
         success: true,
@@ -299,6 +320,8 @@ router.get('/mealtype/:mealType/by-location', auth, async (req, res) => {
     const { latitude, longitude } = user.currentLocation;
     const maxDistance = 5000; // 5km in meters
 
+    console.log('🍽️ Searching near:', latitude, longitude);
+
     // Find nearby cloud kitchens
     const nearbyKitchens = await CloudKitchen.find({
       location: {
@@ -312,7 +335,10 @@ router.get('/mealtype/:mealType/by-location', auth, async (req, res) => {
       }
     });
 
+    console.log('🍽️ Nearby kitchens:', nearbyKitchens.length);
+
     if (nearbyKitchens.length === 0) {
+      console.log('🍽️ No nearby kitchens, returning empty');
       return res.json({
         success: true,
         message: 'No cloud kitchens found within 5km',
@@ -323,12 +349,37 @@ router.get('/mealtype/:mealType/by-location', auth, async (req, res) => {
 
     const kitchenIds = nearbyKitchens.map(k => k._id);
 
-    // Get meal items from nearby kitchens
+    // Get meal items from nearby kitchens OR items without kitchen assignment
     const items = await MenuItem.find({
       mealType: capitalizedMealType,
-      cloudKitchen: { $in: kitchenIds },
-      isAvailable: true
+      isAvailable: true,
+      $or: [
+        { cloudKitchen: { $in: kitchenIds } },
+        { cloudKitchen: null },
+        { cloudKitchen: { $exists: false } }
+      ]
     }).populate('cloudKitchen', 'name location').sort({ createdAt: -1 });
+
+    console.log('🍽️ Found items (with location):', items.length);
+    
+    if (items.length === 0) {
+      console.log('🍽️ No items found with location filter. Checking all items...');
+      const allItems = await MenuItem.find({ isAvailable: true });
+      console.log('🍽️ Total available items in DB:', allItems.length);
+      console.log('🍽️ Meal types in DB:', [...new Set(allItems.map(i => i.mealType))]);
+      console.log('🍽️ Sample items:', allItems.slice(0, 3).map(i => ({ name: i.name, mealType: i.mealType, kitchen: i.cloudKitchen })));
+      
+      // Check items for this specific meal type
+      const mealTypeItems = await MenuItem.find({ mealType: capitalizedMealType, isAvailable: true });
+      console.log(`🍽️ Total ${capitalizedMealType} items in DB:`, mealTypeItems.length);
+      if (mealTypeItems.length > 0) {
+        console.log('🍽️ Sample Dinner items:', mealTypeItems.slice(0, 3).map(i => ({ 
+          name: i.name, 
+          kitchen: i.cloudKitchen,
+          hasKitchen: !!i.cloudKitchen 
+        })));
+      }
+    }
 
     res.json({
       success: true,
@@ -360,6 +411,7 @@ router.get('/mealtype/:mealType/by-location', auth, async (req, res) => {
       }))
     });
   } catch (error) {
+    console.error('❌ Menu by mealType with location error:', error);
     res.status(500).json({ error: 'Server error fetching meal items' });
   }
 });

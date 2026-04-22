@@ -213,6 +213,8 @@ router.post('/login-mobile', async (req, res) => {
   try {
     const { phone, password } = req.body;
     
+    console.log('📱 Mobile login attempt for:', phone);
+    
     if (!phone || !password) {
       return res.status(400).json({ msg: 'Phone and password are required' });
     }
@@ -227,21 +229,28 @@ router.post('/login-mobile', async (req, res) => {
     
     const user = await User.findOne({ phone });
     if (!user) {
+      console.log('❌ User not found:', phone);
       return res.status(400).json({ msg: 'Invalid credentials' });
     }
 
+    console.log('🔍 User found:', { id: user._id, name: user.name, role: user.role });
+
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
+      console.log('❌ Password mismatch');
       return res.status(400).json({ msg: 'Invalid credentials' });
     }
+
+    console.log('✅ Password matched');
 
     const payload = { userId: user.id, role: user.role || 'user' };
     jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '5d' }, (err, token) => {
       if (err) throw err;
+      console.log('✅ Login successful for:', user.name, 'Role:', user.role);
       res.json({ token, role: user.role || 'user' });
     });
   } catch (err) {
-    
+    console.error('❌ Login error:', err);
     res.status(500).send('Server error');
   }
 });

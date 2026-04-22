@@ -6,6 +6,48 @@ const auth = require('./authmiddle');
 const User = require('./user');
 const CloudKitchen = require('./cloudkitchen');
 const axios = require('axios');
+const nodemailer = require('nodemailer');
+
+// Email transporter
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+// Send order notification email
+async function sendOrderNotification(order, user, orderType = 'instant') {
+  try {
+    const itemsList = order.items.map(item => 
+      `<li>${item.menuItem?.name || 'Item'} x ${item.quantity} - ₹${item.price * item.quantity}</li>`
+    ).join('');
+
+    const html = `
+      <div style="font-family:sans-serif;max-width:600px;margin:auto;padding:24px;background:#fff;border:1px solid #e5e7eb;border-radius:12px">
+        <h2 style="color:#f97316;margin:0 0 16px">🍱 New ${orderType === 'instant' ? 'Instant' : 'Scheduled'} Order</h2>
+        <p style="color:#374151;margin:0 0 16px"><strong>Order ID:</strong> ${order._id}</p>
+        <p style="color:#374151;margin:0 0 16px"><strong>Customer:</strong> ${user.name} (${user.phone})</p>
+        <p style="color:#374151;margin:0 0 16px"><strong>Delivery Address:</strong> ${order.deliveryAddress?.fullAddress || order.deliveryAddress?.area || 'N/A'}</p>
+        ${order.scheduledFor ? `<p style="color:#374151;margin:0 0 16px"><strong>Scheduled For:</strong> ${new Date(order.scheduledFor).toLocaleString('en-IN')}</p>` : ''}
+        <h3 style="color:#111827;margin:24px 0 12px">Items:</h3>
+        <ul style="color:#374151;margin:0 0 16px">${itemsList}</ul>
+        <p style="color:#111827;font-size:18px;font-weight:bold;margin:16px 0">Total: ₹${order.finalAmount}</p>
+        ${order.specialInstructions ? `<p style="color:#6b7280;margin:16px 0"><strong>Special Instructions:</strong> ${order.specialInstructions}</p>` : ''}
+      </div>`;
+
+    await transporter.sendMail({
+      from: `"Tiffica Orders" <${process.env.EMAIL_USER}>`,
+      to: 'harshvardhan53394@gmail.com, gehlotutkarsh88@gmail.com',
+      subject: `New ${orderType === 'instant' ? 'Instant' : 'Scheduled'} Order - ${order._id}`,
+      html,
+    });
+    console.log('✅ Order notification email sent');
+  } catch (err) {
+    console.error('❌ Failed to send order notification email:', err.message);
+  }
+}
 
 // Middleware to handle root path
 router.use((req, res, next) => {
@@ -185,6 +227,11 @@ router.post('/', auth, async (req, res) => {
 
     await order.populate('items.menuItem');
     console.log('✅ Order populated');
+
+    // Send email notification
+    sendOrderNotification(order, user, scheduledFor ? 'scheduled' : 'instant').catch(err => 
+      console.error('Email notification failed:', err)
+    );
 
     res.status(201).json({
       success: true,
